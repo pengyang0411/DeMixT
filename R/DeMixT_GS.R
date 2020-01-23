@@ -1,9 +1,16 @@
 #' @title Estimates the proportions of mixed samples for each mixing component 
+#' using profile likelihood gene selection
 #'
-#' @description This function is designed to estimate the deconvolved 
-#' expressions of individual mixed tumor samples for unknown component 
-#' for each gene.
-#'
+#' @description This function is designed to estimate the proportions of all 
+#' mixed samples for each mixing component with a new proposed profile likelihood 
+#' based gene selection, which can select most identifiable genes as reference 
+#' gene sets to achieve better model fitting quality. We first calculated the
+#' Hessian matrix of the parameter spaces and then derive the confidence interval 
+#' of the profile likelihood of each gene. We then utilized the length of 
+#' confidence interval as a metric to rank the identifiability of genes. As 
+#' a result, the proposed gene selection approach can improve the tumor-specific 
+#' transcripts proportion estimation.
+#' 
 #' @param data.Y A SummarizedExperiment object of expression data from mixed 
 #' tumor samples. It is a \eqn{G} by \eqn{My} matrix where \eqn{G} is the number
 #' of genes and \eqn{My} is the number of mixed samples. Samples with the same
@@ -28,7 +35,10 @@
 #' rule is used to select genes for proportion estimation. The default is TRUE.
 #' @param filter.sd The cut-off for the standard deviation of lognormal 
 #' distribution. Genes whose log transferred standard deviation smaller than
-#' the cut-off will be selected into the model. The default is 0.5.
+#' the cut-off will be selected into the model. The default is TRUE.
+#' @param ngene.Profile.selected The number of genes used for proportion
+#' estimation ranked by profile likelihood. The default is 
+#' \eqn{min(1500,0.1*My)}, where \eqn{My} is the number of mixed samples. 
 #' @param ngene.selected.for.pi The percentage or the number of genes used for
 #' proportion estimation. The difference between the expression levels from
 #' mixed tumor samples and the known component(s) are evaluated, and the most
@@ -36,94 +46,113 @@
 #' when if.filter = TRUE. The default is \eqn{min(1500, 0.3*My)}, where
 #' \eqn{My} is the number of mixed sample. Users can also try using more genes,
 #' ranging from \eqn{0.3*My} to \eqn{0.5*My}, and evaluate the outcome.
+#' @param mean.diff.in.CM Threshold of expression difference for selecting
+#' genes in the component merging strategy. We merge three-component to 
+#' two-component by selecting genes with similar expressions for the two known
+#' components. Genes with the mean differences less than the threshold will 
+#' be selected for component merging. It is used in the three-component 
+#' setting, and is enabled when if.filter = TRUE. The default is 0.25.
 #' @param nspikein The number of spikes in normal reference used for proportion
 #' estimation. The default value is \eqn{ min(200, 0.3*My)}, where 
 #' \eqn{My} the number of mixed samples. If it is set to 0, proportion 
 #' estimation is performed without any spike in normal reference.
-#' @param mean.diff.in.CM Threshold of expression difference for selecting genes
-#' in the component merging strategy. We merge three-component to two-component
-#' by selecting genes with similar expressions for the two known components.
-#' Genes with the mean differences less than the threshold will be selected for
-#' component merging. It is used in the three-component setting, and is enabled
-#' when if.filter = TRUE. The default is 0.25.
 #' @param tol The convergence criterion. The default is 10^(-5).
 #' @param pi01 Initialized proportion for first kown component. The default is 
 #' \eqn{Null} and pi01 will be generated randomly from uniform distribution.
 #' @param pi02 Initialized proportion for second kown component. pi02 is needed 
 #' only for running a three-component model. The default is \eqn{Null} and pi02 
 #' will be generated randomly from uniform distribution.
-#' @param nthread The number of threads used for deconvolution when OpenMP is
-#' available in the system. The default is the number of whole threads minus one.
-#' In our no-OpenMP version, it is set to 1.
+#' @param nthread The number of threads used for deconvolution when OpenMP 
+#' is available in the system. The default is the number of whole threads
+#' minus one. In our no-OpenMP version, it is set to 1.
 #'
-#' @return 
+#' @return
 #' \item{pi}{A matrix of estimated proportion. First row and second row 
 #' corresponds to the proportion estimate for the known components and unkown 
 #' component respectively for two or three component settings, and each column 
 #' corresponds to one sample.}
 #' \item{pi.iter}{Estimated proportions in each iteration. It is a \eqn{niter 
-#' *Ny*p} array, where \eqn{p} is the number of components. This is 
+#' *My*p} array, where \eqn{p} is the number of components. This is 
 #' enabled only when output.more.info = TRUE.}
 #' \item{gene.name}{The names of genes used in estimating the proportions. 
 #' If no gene names are provided in the original data set, the genes will
 #' be automatically indexed.}
-#' 
-#' @author Zeya Wang, Wenyi Wang
+#'
+#'@note A Hessian matrix file will be created in the working directory and the
+#' corresponding Hessian matrix with an encoded name from the mixed tumor
+#' sample data will be saved under this file. If a user reruns this function 
+#' with the same dataset, this Hessian matrix will be loaded to in place of 
+#' running the profile likelihood method and reduce running time.
+#'
+#'@author Shaolong Cao, Zeya Wang, Wenyi Wang
 #' 
 #' @seealso http://bioinformatics.mdanderson.org/main/DeMixT
 #'
 #' @examples
+#' 
 #' # Example 1: estimate proportions for simulated two-component data 
 #' # with spike-in normal reference
 #'   data(test.data.2comp)
-#' # res.S1 = DeMixT_S1(data.Y = test.data.2comp$data.Y, 
+#' # res.GS = DeMixT_GS(data.Y = test.data.2comp$data.Y, 
 #' #                    data.N1 = test.data.2comp$data.N1,
 #' #                    niter = 10, nbin = 50, nspikein = 50,
-#' #                    if.filter = TRUE, 
+#' #                    if.filter = TRUE, ngene.Profile.selected = 150,
 #' #                    mean.diff.in.CM = 0.25, ngene.selected.for.pi = 150,
 #' #                    tol = 10^(-5))
 #' #
 #' # Example 2: estimate proportions for simulated two-component data 
 #' # without spike-in normal reference
-#' # data(test.data.2comp)
-#' # res.S1 = DeMixT_S1(data.Y = test.data.2comp$data.Y, 
+#' # data(test.dtat.2comp)
+#' # res.GS = DeMixT_GS(data.Y = test.data.2comp$data.Y, 
 #' #                    data.N1 = test.data.2comp$data.N1,
 #' #                    niter = 10, nbin = 50, nspikein = 0,
-#' #                    if.filter = TRUE, 
+#' #                    if.filter = TRUE, ngene.Profile.selected = 150,
 #' #                    mean.diff.in.CM = 0.25, ngene.selected.for.pi = 150,
 #' #                    tol = 10^(-5))
-#' #
-#' # Example 3: estimate proportions for simulated three-component 
-#' # mixed cell line data 
-#' # data(test.data.3comp)
-#' # res.S1 <- DeMixT_S1(data.Y = test.data.3comp$data.Y,
-#' #                     data.N1 = test.data.3comp$data.N1,
-#' #                     data.N2 = test.data.3comp$data.N2, 
-#' #                     if.filter = TRUE)
 #' 
-#' @references Wang Z, Cao S, Morris J S, et al. Transcriptome Deconvolution of 
-#' Heterogeneous Tumor Samples with Immune Infiltration. iScience, 2018, 9: 451-460.
 #' 
-#' @keywords DeMixT_S1
+#' @references Gene Selection and Identifiability Analysis of RNA 
+#' Deconvolution Models using Profile Likelihood. Manuscript in 
+#' preparation.
 #' 
-#' @export 
-DeMixT_S1 <- function (data.Y, data.N1, data.N2 = NULL, niter = 10, 
-                       nbin = 50, if.filter = TRUE, filter.sd = 0.5,
-                       ngene.selected.for.pi = NA, nspikein = NULL,
-                       mean.diff.in.CM = 0.25, tol = 10^(-5),
-                       pi01 = NULL, pi02 = NULL,
-                       nthread = parallel::detectCores() - 1) 
-{
-  filter.option = 1
+#' @keywords DeMixT_GS
+#' 
+#' @export
+DeMixT_GS <- function(data.Y, data.N1, data.N2 = NULL, 
+                      niter = 10, nbin = 50, if.filter = TRUE,
+                      filter.sd = 0.5, ngene.Profile.selected = NA, 
+                      ngene.selected.for.pi = NA, 
+                      mean.diff.in.CM = 0.25, nspikein = NULL,
+                      tol = 10^(-5), pi01 = NULL, pi02 = NULL,
+                      nthread = parallel::detectCores() - 1) {
+  
+  IF_inverse <- function(m){
+    return(matrixcalc::is.singular.matrix(m))
+  } 
+  nS = ncol(data.Y)
+  ## Creat a folder for saving hessian matrix
+  path = getwd()
+  if (!file.exists(paste0(path,'/Hessian_Matrix'))){
+    dir.create(path = paste0(path, '/Hessian_Matrix'))
+  } 
   ## Transfering data format
   data.Y <- SummarizedExperiment::assays(data.Y)[[1]]
   data.N1 <- SummarizedExperiment::assays(data.N1)[[1]]
+  ## Encode data.Y for hessian matrix
+  if(nS > 10){
+    data.Y_encode = base64encode(log2(as.matrix(data.Y)[1, 1:10] + 1))
+  }else{
+    data.Y_encode = base64encode(log2(as.matrix(data.Y)[1, 1:nS] + 1))
+  }
+  if (!is.null(data.N2)){
+    message('File for Hessian matrix has existed')
+    data.N2 <- SummarizedExperiment::assays(data.N2)[[1]]
+    nspikein = 0
+  }
   if (is.na(ngene.selected.for.pi)){
     ngene.selected.for.pi = min(1500, 0.3*ncol(data.Y))
   } 
-  nS = ncol(data.Y)
   ## Generate Spike-in normal reference 
-  if (!is.null(data.N2)) nspikein = 0
   if (is.null(nspikein)) nspikein = min(200, ceiling(ncol(data.Y)*0.3))
   if (nspikein > 0){
     MuN = apply(log2(data.N1), 1, mean)
@@ -136,11 +165,9 @@ DeMixT_S1 <- function (data.Y, data.N1, data.N2 = NULL, niter = 10,
     Spikein.normal = array(0, c(nrow(data.Y), nspikein))
     for(k in 1:nrow(data.Y)) {
       Spikein.normal[k, ] = 2^rnorm(n = nspikein, mean = MuN[k], sd = SigmaN[k])
-      }
+    }
     data.Y = cbind(data.Y, Spikein.normal)
   }
-  if (!is.null(data.N2)) 
-    data.N2 <- SummarizedExperiment::assays(data.N2)[[1]]
   ## Creat row and column names for input data
   if (is.null(rownames(data.Y))) {
     rownames(data.Y) <- paste('Gene', seq = seq(1, nrow(data.Y)))
@@ -165,6 +192,12 @@ DeMixT_S1 <- function (data.Y, data.N1, data.N2 = NULL, niter = 10,
     groupid <- c(rep(1, ncol(data.N1)), rep(2, ncol(data.N2)), 
                  rep(3, ncol(data.Y)))
   }
+
+  ## Create the default value for ngene.Profile.selected
+  filter.option = 1
+  if(is.na(ngene.Profile.selected)){
+    ngene.Profile.selected<-min(1500,0.3*nrow(data.Y))
+  }
   
   ## filter.option: 1 - remove genes containing zero; 2 - add 1 to to kill zeros
   if (filter.option == 1) {
@@ -188,8 +221,8 @@ DeMixT_S1 <- function (data.Y, data.N1, data.N2 = NULL, niter = 10,
   ## filter out genes with constant value across all samples
   if (is.null(data.N2)) {
     if (dim(inputdata)[1] == 1) {
-      inputdata <- t(as.matrix(inputdata[apply(data.N1, 
-        1, function(x) length(unique(x)) > 1), ]))
+      inputdata <- t(as.matrix(inputdata[apply(data.N1,
+                                  1, function(x) length(unique(x)) > 1), ]))
     }
     else {
       inputdata <- inputdata[apply(data.N1, 1, function(x) 
@@ -198,8 +231,8 @@ DeMixT_S1 <- function (data.Y, data.N1, data.N2 = NULL, niter = 10,
   }else{
     if (dim(inputdata)[1] == 1) {
       inputdata <- t(as.matrix(inputdata[apply(data.N1, 
-        1, function(x) length(unique(x)) > 1) & apply(data.N2,
-        1, function(x) length(unique(x)) > 1), ]))
+      1, function(x) length(unique(x)) > 1) & apply(data.N2,
+      1, function(x) length(unique(x)) > 1), ]))
     }
     else {
       inputdata <- inputdata[apply(data.N1, 1, function(x) 
@@ -207,7 +240,6 @@ DeMixT_S1 <- function (data.Y, data.N1, data.N2 = NULL, niter = 10,
           length(unique(x)) > 1), ]
     }
   }
-  
   
   filter2 <- function(inputdata1r, ngene.selected.for.pi, n = 1) {
     if ((ngene.selected.for.pi > 1) & (ngene.selected.for.pi%%1 == 
@@ -233,36 +265,157 @@ DeMixT_S1 <- function (data.Y, data.N1, data.N2 = NULL, niter = 10,
   
   
   inputdata = as.matrix(inputdata)
- 
   
+  
+  ## case 1
   if (if.filter == FALSE) {
-    gene.name <- rownames(inputdata)                       
-    res <- Optimum_KernelC(inputdata, groupid, 
-                           setting.pi = 0, nspikein = nspikein,
-      givenpi = rep(0, 2 * ncol(data.Y)), givenpiT = rep(0, ncol(data.Y)),
-      niter = niter, ninteg = nbin, tol = tol, pi01 = pi01, pi02 = pi02,
+    gene.name <- rownames(inputdata)
+    res <- Optimum_KernelC(inputdata, groupid, setting.pi = 0, 
+                           nspikein = nspikein,
+      givenpi = rep(0, 2 * ncol(data.Y)), 
+      givenpiT = rep(0, ncol(data.Y)),
+      niter = niter, ninteg = nbin, tol = tol, 
+      pi01 = pi01, pi02 = pi02,
       nthread = nthread)
   }
+  
+  ## Gene selection based on profile likelihood method
   if (if.filter == TRUE & is.null(data.N2)) {
-    #inputdatans <- rowSds(log2(data.N1))
+    # step 2 identifiability selection
+    cat("Gene selection starts\n")
     inputdatans <- apply(log2(data.N1), 1, sd)
     id1 <- (inputdatans < filter.sd)
     if (sum(id1) < 20) 
       stop("The threshold of standard variation is too stringent. \n
            Please provide a larger threshold. ")
     inputdatamat1 <- inputdata[id1, ]
-    inputdatamat1nm <- rowMeans(inputdatamat1[, groupid == 
-                                                1])
-    inputdatamat1ym <- rowMeans(inputdatamat1[, groupid == 
-                                                3])
+
+    inputdatamat1nm <- rowMeans(inputdatamat1[, groupid == 1])
+    inputdatamat1ym <- rowMeans(inputdatamat1[, groupid == 3])
     inputdata1r <- inputdatamat1ym/inputdatamat1nm
     inputdata2 <- filter2(inputdata1r, ngene.selected.for.pi)
-    gene.name <- rownames(inputdata2)
-    res <- Optimum_KernelC(inputdata2, groupid, setting.pi = 0, nspikein = nspikein,
-      givenpi = rep(0, 2 * ncol(data.Y)), givenpiT = rep(0, ncol(data.Y)),
-      niter = niter, ninteg = nbin, tol = tol, pi01 = pi01, pi02 = pi02,
-      nthread = nthread)
+    
+    gene.name.S1 <- rownames(inputdata2)
+    res.S1 <- Optimum_KernelC(inputdata2, groupid, setting.pi = 0, 
+                              nspikein = nspikein,
+          givenpi = rep(0, 2 * ncol(data.Y)), 
+          givenpiT = rep(0, ncol(data.Y)),
+          niter = niter, ninteg = nbin, tol = tol, 
+          pi01 = pi01, pi02 = pi02,
+          nthread = nthread)
+    
+    Pi.all<-colSums(res.S1$pi)
+    PiT.all <- 1-colSums(res.S1$pi)
+    MuT.S1 <- as.numeric(res.S1$decovMu[,dim(res.S1$decovMu)[2]])
+    SigmaT.S1 <- as.numeric(res.S1$decovSigma[,dim(res.S1$decovMu)[2]])
+    sdn.obs<-apply(log2(inputdata2[, groupid == 1]+0.001),1,sd)
+    mun.obs<-rowMeans(log2(inputdata2[, groupid == 3]+0.001))
+    
+    n.normal<-sum(groupid == 1)
+    n.mix<-sum(groupid == 3)
+    
+    res.all <- Optimum_KernelC(inputdatamat1, groupid, setting.pi = 1, 
+                               nspikein = nspikein, givenpi = Pi.all, 
+                               givenpiT = PiT.all, niter = 1, ninteg = nbin, 
+                               pi01 = pi01, pi02 = pi02,
+                               tol = tol, nthread = nthread)
+    
+    MuT.all <- as.numeric(res.all$decovMu[,dim(res.all$decovMu)[2]])
+    SigmaT.all <- as.numeric(res.all$decovSigma[,dim(res.all$decovMu)[2]])
+    sdn.obs<-apply(log2(inputdatamat1[, groupid == 1]+0.001),1,sd)
+    mun.obs<-rowMeans(log2(inputdatamat1[, groupid == 3]+0.001))
+    
+    n.normal<-sum(groupid == 1)
+    n.mix<-sum(groupid == 3)
+    
+    if(file.exists(paste0(path, '/Hessian_Matrix/', 
+                          data.Y_encode,'_Hessian.RData'))){
+      load(paste0(path, '/Hessian_Matrix/', 
+                  data.Y_encode,'_Hessian.RData'))
+      message(paste0('Loading Hessian matrix from ',
+                     paste0(path, '/Hessian_Matrix/', 
+                            data.Y_encode,'_Hessian.RData \n')))
+    }else{
+      if(nspikein > 0){
+        Hessian <- D2Loglikelihood_2D(y=inputdatamat1[,(n.normal+1):
+                                                        (n.normal+n.mix-nspikein)], 
+                                      Pi=Pi.all, MuN=mun.obs, MuT=MuT.all, 
+                                      SigmaN=sdn.obs, SigmaT=SigmaT.all)
+      }else{
+        Hessian <- D2Loglikelihood_2D(y=inputdatamat1[,(n.normal+1):
+                                                        (n.normal+n.mix)], 
+                                      Pi=Pi.all, MuN=mun.obs, MuT=MuT.all, 
+                                      SigmaN=sdn.obs, SigmaT=SigmaT.all)
+      }
+      save(Hessian, file = paste0(path, '/Hessian_Matrix/',
+                                  data.Y_encode,'_Hessian.RData'))
+      message(paste0('Hessian matrix has been saved in ',
+                     paste0(path, '/Hessian_Matrix/', 
+                            data.Y_encode,'_Hessian.RData \n')))
+    }
+    
+    ## Check if the Hessian matrix contains infinity
+    if(sum(!is.finite(Hessian)) == 0){
+      
+      if(nspikein > 0 ){
+        S <- n.mix - nspikein
+      }else{
+        S <- n.mix
+      }
+      G <- nrow(inputdatamat1)
+      if(IF_inverse(Hessian)){
+        C.inverse <- 2*diag(solve(Hessian))
+      }else{
+        C.inverse <- rep(NA, S)
+      }
+      C.marginal <- abs(2/diag(Hessian))
+      if(sum(is.na(C.inverse))>1){
+        C <- C.marginal
+        Non.inverse<-TRUE
+      }else{
+        C <- C.inverse
+        Non.inverse<-FALSE
+      }
+      
+      if(nspikein > 0){
+        theta.valid <- x_update_2D(Pi.all[c(1:(length(Pi.all) - nspikein))], 
+                                   MuT.all, SigmaT.all, S, G)
+      }else{
+        theta.valid <- x_update_2D(Pi.all, MuT.all, SigmaT.all, S, G)
+      }
+      CI.upper <- theta.valid + qnorm(0.975)*sqrt(abs(C))
+      CI.upper.MuT <- x_update_inv_2D(CI.upper,S,G)$MuT
+      CI.upper.SigmaT <- x_update_inv_2D(CI.upper,S,G)$SigmaT
+      CI.lower <- theta.valid - qnorm(0.975)*sqrt(abs(C))
+      CI.lower.MuT <- x_update_inv_2D(CI.lower,S,G)$MuT
+      CI.lower.SigmaT <- x_update_inv_2D(CI.lower,S,G)$SigmaT
+      
+      id.SigmaT.CI <- order(CI.upper.SigmaT-CI.lower.SigmaT)
+      id.MuT.CI <- order(CI.upper.MuT-CI.lower.MuT)
+      id1.ID <- order(CI.upper.MuT-CI.lower.MuT + 
+                        CI.upper.SigmaT-CI.lower.SigmaT)
+      
+      id2 <- id1.ID[1:min(ngene.Profile.selected, length(id1.ID))]
+      inputmat<-inputdatamat1[id2,]
+      
+      res <- Optimum_KernelC(inputmat, groupid, setting.pi = 0, 
+                             nspikein = nspikein, 
+                             givenpi = rep(0, 2 * n.mix), 
+                             givenpiT = rep(0, n.mix), 
+                             niter = niter, ninteg = nbin, 
+                             tol = tol, pi01 = pi01, pi02 = pi02,
+                             nthread=nthread)
+      gene.name <- rownames(inputmat)
+      
+    }else{
+        message('Hessian matrix has infinity value, switch to S1 \n') 
+        res = res.S1
+        gene.name <- rownames(inputdata2)
+    }
   }
+  
+  
+  ## case 3: two-stage filtering, three components
   if (if.filter == TRUE & !is.null(data.N2)) {
     message("Fitering stage 1 starts\n")
     inputdatan1m <- rowMeans(log2(inputdata[, groupid == 
@@ -289,10 +442,13 @@ DeMixT_S1 <- function (data.Y, data.N1, data.N2 = NULL, niter = 10,
     inputdatamat2 <- filter2(inputdata1r, ngene.selected.for.pi)
     cnvgroup <- groupid
     cnvgroup[groupid == 2] <- 1
-    res1 <- Optimum_KernelC(inputdatamat2, cnvgroup, setting.pi = 0, nspikein = nspikein,
-      givenpi = rep(0, ncol(data.Y)), givenpiT = rep(0, ncol(data.Y)),
-      niter = niter, ninteg = nbin, tol = tol, pi01 = pi01, pi02 = pi02,
-      nthread = nthread)
+    res1 <- Optimum_KernelC(inputdatamat2, cnvgroup, setting.pi = 0, 
+                            nspikein = nspikein,
+                            givenpi = rep(0, ncol(data.Y)), 
+                            givenpiT = rep(0, ncol(data.Y)),
+                            niter = niter, ninteg = nbin, tol = tol,
+                            pi01 = pi01, pi02 = pi02,
+                            nthread = nthread)
     fixed.piT <- 1 - as.numeric(res1$pi[1, ])
     message("Filtering stage 1 is finished\n")
     message("Filtering stage 2 starts\n")
@@ -315,14 +471,15 @@ DeMixT_S1 <- function (data.Y, data.N1, data.N2 = NULL, niter = 10,
     id5 <- (inputdata1s > quantile(inputdata1s, probs = 0.5))
     inputdatamat3 <- inputdatamat2[id5, ]
     gene.name <- rownames(inputdatamat3)
-    res <- Optimum_KernelC(inputdatamat3, groupid, 
-        nspikein = nspikein, setting.pi = 2,  
-      givenpi = rep(0, 2 * ncol(data.Y)), givenpiT = fixed.piT, 
-      niter = niter, ninteg = nbin, tol = tol, pi01 = pi01, pi02 = pi02,
-      nthread = nthread)
+    res <- Optimum_KernelC(inputdatamat3, groupid, setting.pi = 2, 
+                           nspikein = nspikein,
+                           givenpi = rep(0, 2 * ncol(data.Y)), 
+                           givenpiT = fixed.piT, 
+                           niter = niter, ninteg = nbin, tol = tol, 
+                           pi01 = pi01, pi02 = pi02,
+                           nthread = nthread)
     message("Filtering stage 2 is finished")
   }
-  
   
   if(nspikein == 0){
     pi <- rbind(t(as.matrix(res$pi[1, ])), 
@@ -377,7 +534,9 @@ DeMixT_S1 <- function (data.Y, data.N1, data.N2 = NULL, niter = 10,
     row.names(pi.iter) <- paste('iter ', seq = c(1:nrow(pi.iter)))
   }
 
+  
   cat("Estimation of Proportions finished:\n")
   print(round(t(pi),4))
-  return(list(pi = pi, pi.iter = pi.iter, gene.name = gene.name))
+  return(list(pi = pi,  
+  pi.iter = pi.iter, gene.name = gene.name))
 }
