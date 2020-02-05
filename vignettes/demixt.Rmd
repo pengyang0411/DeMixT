@@ -160,7 +160,8 @@ unmatched samples of the \(N_1\) and \(N_2\) component tissues.
 (See further details in our paper.)
 
 2. Reconstitute the expression profiles by searching each set of \(\{n_{1,ig},
-n_{2,ig}\}\) that maximizes the joint density of \(N_{1,ig}\), \(N_{2,ig}\) and
+n_{2,ig}\}\) that maxim
+izes the joint density of \(N_{1,ig}\), \(N_{2,ig}\) and
 \(T_{ig}\). The value of \(t_{ig}\) is solved as \({y_{ig}} - 
 {{\hat \pi }_{1,i}}{n_{1,ig}} - {{\hat \pi }_{2,i}}{n_{2,ig}}\).
 
