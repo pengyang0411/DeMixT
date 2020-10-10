@@ -53,6 +53,7 @@ void Tdemix(double *data, int *nGroup, int *nsamp, int *ngenes, int *nspikein, i
   #ifdef _OPENMP 
     omp_set_num_threads(nthread);
   #endif
+  
 	
   //get value from input parameter
   nS=*nsamp;            // Number of Samples

@@ -10,7 +10,7 @@ The function DeMixT is designed to finish the whole pipeline of deconvolution fo
 # Installation
 DeMixT source files are compatible with windows, linux and mac os.
 
-This version is for users who have OpenMP on the computer. To install this package, start R and enter:
+This version is for users who have OpenMP or MPI on the computer. To install this package, start R and enter:
 
 devtools::install_github("wwylab/DeMixT")
 
@@ -25,3 +25,6 @@ This data set is used in our validation experiment for DeMixT. To generate this 
 
 Knitr documentation for the DeMixT paper (Wang et al.) can be downloaded from the website:
 http://bioinformatics.mdanderson.org/Software/DeMixT/online_methods.html.
+
+# Acknowledgements
+GTEx Project - The Genotype-Tissue Expression (GTEx) Project was supported by the Common Fund of the Office of the Director of the National Institutes of Health, and by NCI, NHGRI, NHLBI, NIDA, NIMH, and NINDS. The data used for the analyses described in this manuscript were obtained from: [insert, where appropriate] the GTEx Portal on MM/DD/YY and/or dbGaP accession number phs000424.vN.pN on MM/DD/YYYY.

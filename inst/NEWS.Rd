@@ -1,6 +1,24 @@
 \name{NEWS}
 \title{News for Package \pkg{DeMixT}}
 
+\section{Version 1.6.0}{
+\itemize{
+\item
+MPI for parallel computing is avaliable under R 4.0.0 for linux and
+Mac OS platforms.
+\item
+Gene expression data of normal tissues (Lung, Prostate and Thyroid) 
+from the GTEx study are included.
+\item
+Rename DeMixT_S1 function to DeMixT_DE.
+}}
+
+\section{Version 1.4.0}{
+\itemize{
+\item
+Disabled OpenMP under R 4.0.0 for Mac OS platform.
+}}
+
 \section{Version 1.2.5}{
 \itemize{
 \item
