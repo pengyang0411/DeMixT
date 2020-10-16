@@ -466,7 +466,7 @@ res.GS.TCGA = DeMixT_GS(data.Y = TCGA_PRAD_Tumor,
                         tol = 10^(-5))                 
 ````
 ```{r GTEx, echo=FALSE, out.width='65%', fig.align='center'}
-knitr::include_graphics(path = paste0("GTEx normal.png"))
+knitr::include_graphics(path = paste0("GTEx_normal.png"))
 ```
 
 
